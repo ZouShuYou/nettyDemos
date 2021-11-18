@@ -3,6 +3,10 @@ package netty.rpc.server.core;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.socket.SocketChannel;
+import io.netty.handler.timeout.IdleStateHandler;
+import netty.rpc.common.codec.Beat;
+import netty.rpc.common.serializer.Serializer;
+import netty.rpc.common.serializer.kryo.KrypSerializer;
 
 import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -24,6 +28,9 @@ public class RpcServerInitializer extends ChannelInitializer<SocketChannel> {
 
     @Override
     protected void initChannel(SocketChannel ch) throws Exception {
+
+        Serializer serializer = KrypSerializer.class.newInstance();
         ChannelPipeline cp = ch.pipeline();
+        cp.addLast(new IdleStateHandler(0,0, Beat.BEAT_TIMEOUT));
     }
 }
