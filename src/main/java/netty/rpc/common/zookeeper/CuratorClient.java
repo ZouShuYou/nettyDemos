@@ -2,9 +2,13 @@ package netty.rpc.common.zookeeper;
 
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
+import org.apache.curator.framework.recipes.cache.PathChildrenCache;
+import org.apache.curator.framework.recipes.cache.PathChildrenCacheListener;
 import org.apache.curator.framework.state.ConnectionStateListener;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.apache.zookeeper.CreateMode;
+
+import java.util.List;
 
 /**
  * @author zousy
@@ -29,6 +33,10 @@ public class CuratorClient {
     }
 
     public CuratorClient(String connectString, int timeout) {
+        this(connectString,ZK_NAMESPACE,timeout,timeout);
+    }
+
+    public CuratorClient(String connectString){
         this(connectString,ZK_NAMESPACE,ZK_SESSION_TIMEOUT,ZK_CONNECTION_TIMEOUT);
     }
 
@@ -49,4 +57,19 @@ public class CuratorClient {
     public void close() {
         this.client.close();
     }
+
+    public List<String> getChildren(String path) throws Exception {
+        return client.getChildren().forPath(path);
+    }
+
+    public byte[] getData(String path) throws Exception {
+        return client.getData().forPath(path);
+    }
+
+    public void watchPathChildrenNode(String path, PathChildrenCacheListener listener) throws Exception {
+        PathChildrenCache pathChildrenCache = new PathChildrenCache(client, path, true);
+        pathChildrenCache.start(PathChildrenCache.StartMode.BUILD_INITIAL_CACHE);
+        pathChildrenCache.getListenable().addListener(listener);
+    }
+
 }

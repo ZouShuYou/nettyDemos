@@ -3,13 +3,15 @@ package netty.rpc.server.core;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.socket.SocketChannel;
+import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.timeout.IdleStateHandler;
-import netty.rpc.common.codec.Beat;
+import netty.rpc.common.codec.*;
 import netty.rpc.common.serializer.Serializer;
 import netty.rpc.common.serializer.kryo.KrypSerializer;
 
 import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author zousy
@@ -31,6 +33,10 @@ public class RpcServerInitializer extends ChannelInitializer<SocketChannel> {
 
         Serializer serializer = KrypSerializer.class.newInstance();
         ChannelPipeline cp = ch.pipeline();
-        cp.addLast(new IdleStateHandler(0,0, Beat.BEAT_TIMEOUT));
+        cp.addLast(new IdleStateHandler(0,0, Beat.BEAT_TIMEOUT, TimeUnit.SECONDS));
+        cp.addLast(new LengthFieldBasedFrameDecoder(65535,0,4,0,0));
+        cp.addLast(new RpcDecoder(RpcRequest.class,serializer));
+        cp.addLast(new RpcEncoder(RpcResponse.class,serializer));
+        cp.addLast(new RpcServerHandler(handlerMap,threadPoolExecutor));
     }
 }
