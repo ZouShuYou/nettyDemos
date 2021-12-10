@@ -1,11 +1,15 @@
 package netty.rpc.client.connect;
 
 import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import netty.rpc.client.handler.RpcClientHandler;
 import netty.rpc.client.handler.RpcClientInitializer;
+import netty.rpc.client.route.RpcLoadBalance;
+import netty.rpc.client.route.impl.RpcLoadBalanceRoundRobin;
 import netty.rpc.common.protocol.RpcProtocol;
 import netty.rpc.common.protocol.RpcServiceInfo;
 import org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent;
@@ -34,6 +38,9 @@ public class ConnectionManager {
     private CopyOnWriteArraySet<RpcProtocol> rpcProtocolSet = new CopyOnWriteArraySet<>();
     private ReentrantLock lock = new ReentrantLock();
     private Condition connected = lock.newCondition();
+    private long waitTimeout = 5000;
+    private RpcLoadBalance loadBalance = new RpcLoadBalanceRoundRobin();
+    private volatile boolean isRunning = true;
 
 
     public void updateConnectedServer(RpcProtocol rpcProtocol, PathChildrenCacheEvent.Type type) {
@@ -61,8 +68,33 @@ public class ConnectionManager {
             public void run() {
                 Bootstrap b = new Bootstrap();
                 b.group(eventLoopGroup).channel(NioSocketChannel.class).handler(new RpcClientInitializer());
+
+                ChannelFuture channelFuture = b.connect(remotePeer);
+                channelFuture.addListener(new ChannelFutureListener() {
+                    @Override
+                    public void operationComplete(ChannelFuture future) throws Exception {
+                        if (future.isSuccess()){
+                            logger.info("Successfully connect to remote server, remote peer = " + remotePeer);
+                            RpcClientHandler handler = channelFuture.channel().pipeline().get(RpcClientHandler.class);
+                            connectedServerNodes.put(rpcProtocol,handler);
+                            handler.setRpcProtocl(rpcProtocol);
+                            signalAvailableHandler();
+                        }else {
+                            logger.error("Can not connect to remote server, remote peer = " + remotePeer);
+                        }
+                    }
+                });
             }
-        })
+        });
+    }
+
+    private void signalAvailableHandler() {
+        lock.lock();
+        try {
+            connected.signalAll();
+        }finally {
+            lock.unlock();
+        }
     }
 
     private static class SingletonHolder{
@@ -71,5 +103,50 @@ public class ConnectionManager {
 
     public static ConnectionManager getInstance() {
         return SingletonHolder.instance;
+    }
+
+    public RpcClientHandler chooseHandler(String serviceKey) throws Exception {
+        int size = connectedServerNodes.values().size();
+        while (isRunning && size <= 0){
+            try {
+                waitingForHandler();
+            }catch (InterruptedException e){
+                logger.error("Waiting for available service is interrupted!", e);
+            }
+        }
+        RpcProtocol rpcProtocol = loadBalance.route(serviceKey,connectedServerNodes);
+        RpcClientHandler handler = connectedServerNodes.get(rpcProtocol);
+        if (handler != null){
+            return handler;
+        }else {
+            throw new Exception("Can not get available connection");
+        }
+    }
+
+    private boolean waitingForHandler() throws InterruptedException {
+        lock.lock();
+        try {
+            logger.warn("Waiting for available service");
+            return connected.await(this.waitTimeout,TimeUnit.SECONDS);
+        }finally {
+            lock.unlock();
+        }
+    }
+
+    public void stop(){
+        isRunning = false;
+        for (RpcProtocol rpcProtocol : rpcProtocolSet){
+            removeAndCloseHandler(rpcProtocol);
+        }
+
+    }
+
+    private void removeAndCloseHandler(RpcProtocol rpcProtocol) {
+        RpcClientHandler handler = connectedServerNodes.get(rpcProtocol);
+        if (handler != null){
+            handler.close();
+        }
+        connectedServerNodes.remove(rpcProtocol);
+        rpcProtocolSet.remove(rpcProtocol);
     }
 }
