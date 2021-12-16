@@ -2,6 +2,9 @@ package netty.rpc.client.handler;
 
 import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
+import io.netty.handler.timeout.IdleStateEvent;
+import netty.rpc.client.connect.ConnectionManager;
+import netty.rpc.common.codec.Beat;
 import netty.rpc.common.codec.RpcRequest;
 import netty.rpc.common.codec.RpcResponse;
 import netty.rpc.common.protocol.RpcProtocol;
@@ -26,6 +29,18 @@ public class RpcClientHandler extends SimpleChannelInboundHandler<RpcResponse> {
     private RpcProtocol rpcProtocol;
 
     @Override
+    public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
+        super.channelRegistered(ctx);
+        this.channel =ctx.channel();
+    }
+
+    @Override
+    public void channelActive(ChannelHandlerContext ctx) throws Exception {
+        super.channelActive(ctx);
+        this.remotePeer = this.channel.remoteAddress();
+    }
+
+    @Override
     protected void channelRead0(ChannelHandlerContext ctx, RpcResponse response) throws Exception {
         String requestId = response.getRequestId();
         logger.debug("Receive response: " + requestId);
@@ -36,6 +51,12 @@ public class RpcClientHandler extends SimpleChannelInboundHandler<RpcResponse> {
         }else {
             logger.warn("Can not get pending response for request id: " + requestId);
         }
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+        logger.error("Client caught exception: " + cause.getMessage());
+        ctx.close();
     }
 
     public void close() {
@@ -58,5 +79,21 @@ public class RpcClientHandler extends SimpleChannelInboundHandler<RpcResponse> {
 
     public void setRpcProtocl(RpcProtocol rpcProtocol) {
         this.rpcProtocol = rpcProtocol;
+    }
+
+    @Override
+    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+        if (evt instanceof IdleStateEvent){
+            sendRequest(Beat.BEAT_PING);
+            logger.debug("Client send beat-ping to " + remotePeer);
+        }else {
+            super.userEventTriggered(ctx,evt);
+        }
+    }
+
+    @Override
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        super.channelInactive(ctx);
+        ConnectionManager.getInstance().removeHandler(rpcProtocol);
     }
 }

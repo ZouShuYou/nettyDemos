@@ -72,11 +72,53 @@ public class ObjectProxy<T,P> implements InvocationHandler, RpcService<T,P,Seria
 
     @Override
     public RpcFuture call(String funcName, Object... args) throws Exception {
-        return null;
+        String serviceKey = ServiceUtil.makeServiceKey(this.clazz.getName(),version);
+        RpcClientHandler handler = ConnectionManager.getInstance().chooseHandler(serviceKey);
+        RpcRequest rpcRequest = createRequest(this.clazz.getName(), funcName, args);
+        RpcFuture rpcFuture = handler.sendRequest(rpcRequest);
+        return rpcFuture;
     }
 
     @Override
     public RpcFuture call(SerializableFunction<T> tSerializableFunction, Object... args) throws Exception {
-        return null;
+        String serviceKey = ServiceUtil.makeServiceKey(this.clazz.getName(), version);
+        RpcClientHandler handler = ConnectionManager.getInstance().chooseHandler(serviceKey);
+        RpcRequest request = createRequest(this.clazz.getName(), tSerializableFunction.getName(), args);
+        RpcFuture rpcFuture = handler.sendRequest(request);
+        return rpcFuture;
+    }
+
+    private RpcRequest createRequest(String name, String funcName, Object[] args) {
+        RpcRequest request = new RpcRequest();
+        request.setRequestId(UUID.randomUUID().toString());
+        request.setClassName(name);
+        request.setMethodName(funcName);
+        request.setParameters(args);
+        request.setVersion(version);
+        Class[] parameterTypes = new Class[args.length];
+        // Get the right class type
+        for (int i = 0; i < args.length; i++) {
+            parameterTypes[i] = getClassType(args[i]);
+        }
+        request.setParameterTypes(parameterTypes);
+
+        // Debug
+        if (logger.isDebugEnabled()) {
+            logger.debug(name);
+            logger.debug(funcName);
+            for (int i = 0; i < parameterTypes.length; ++i) {
+                logger.debug(parameterTypes[i].getName());
+            }
+            for (int i = 0; i < args.length; ++i) {
+                logger.debug(args[i].toString());
+            }
+        }
+
+        return request;
+    }
+
+    private Class getClassType(Object obj) {
+        Class<?> classType = obj.getClass();
+        return classType;
     }
 }

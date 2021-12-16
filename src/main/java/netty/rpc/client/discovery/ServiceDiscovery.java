@@ -45,7 +45,11 @@ public class ServiceDiscovery {
                             break;
                         case CHILD_ADDED:
                             getServiceAndUpdateServer(childData, PathChildrenCacheEvent.Type.CHILD_ADDED);
-
+                        case CHILD_UPDATED:
+                            getServiceAndUpdateServer(childData, PathChildrenCacheEvent.Type.CHILD_UPDATED);
+                        case CHILD_REMOVED:
+                            getServiceAndUpdateServer(childData, PathChildrenCacheEvent.Type.CHILD_REMOVED);
+                            break;
                     }
                 }
             });
@@ -73,7 +77,7 @@ public class ServiceDiscovery {
     }
 
     private void updateConnectedServer(List<RpcProtocol> dataList) {
-
+        ConnectionManager.getInstance().updateConnectedServer(dataList);
     }
 
     private void getServiceAndUpdateServer(ChildData childData, PathChildrenCacheEvent.Type type){
@@ -86,5 +90,9 @@ public class ServiceDiscovery {
 
     private void updateConnectedServer(RpcProtocol rpcProtocol, PathChildrenCacheEvent.Type type) {
         ConnectionManager.getInstance().updateConnectedServer(rpcProtocol, type);
+    }
+
+    public void stop(){
+        this.curatorClient.close();
     }
 }

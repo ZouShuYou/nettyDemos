@@ -17,6 +17,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.Condition;
@@ -49,6 +51,42 @@ public class ConnectionManager {
         }
         if (type == PathChildrenCacheEvent.Type.CHILD_ADDED && !rpcProtocolSet.contains(rpcProtocol)){
             connectServerNode(rpcProtocol);
+        }else if (type == PathChildrenCacheEvent.Type.CHILD_UPDATED){
+            removeAndCloseHandler(rpcProtocol);
+            connectServerNode(rpcProtocol);
+        }else if (type == PathChildrenCacheEvent.Type.CHILD_REMOVED){
+            removeAndCloseHandler(rpcProtocol);
+        }else {
+            throw new IllegalArgumentException("Unknow type:" + type);
+        }
+    }
+
+    public void updateConnectedServer(List<RpcProtocol> serviceList){
+        if (serviceList != null && serviceList.size() > 0){
+            HashSet<RpcProtocol> serviceSet = new HashSet<>(serviceList.size());
+            for (int i = 0; i < serviceSet.size(); i++){
+                RpcProtocol rpcProtocol = serviceList.get(i);
+                serviceSet.add(rpcProtocol);
+            }
+
+            for (final RpcProtocol rpcProtocol : serviceSet){
+                if (!rpcProtocolSet.contains(rpcProtocol)){
+                    connectServerNode(rpcProtocol);
+                }
+            }
+
+            for (RpcProtocol rpcProtocol : rpcProtocolSet){
+                if (!serviceSet.contains(rpcProtocol)) {
+                    logger.info("Remove invalid service: " + rpcProtocol.toJson());
+                    removeAndCloseHandler(rpcProtocol);
+                }
+            }
+        }else {
+            // No available service
+            logger.error("No available service!");
+            for (RpcProtocol rpcProtocol : rpcProtocolSet) {
+                removeAndCloseHandler(rpcProtocol);
+            }
         }
     }
 
@@ -97,6 +135,12 @@ public class ConnectionManager {
         }
     }
 
+    public void removeHandler(RpcProtocol rpcProtocol) {
+        rpcProtocolSet.remove(rpcProtocol);
+        connectedServerNodes.remove(rpcProtocol);
+        logger.info("Remove one connection, host: {}, port: {}", rpcProtocol.getHost(), rpcProtocol.getPort());
+    }
+
     private static class SingletonHolder{
         private static final ConnectionManager instance = new ConnectionManager();
     }
@@ -133,14 +177,6 @@ public class ConnectionManager {
         }
     }
 
-    public void stop(){
-        isRunning = false;
-        for (RpcProtocol rpcProtocol : rpcProtocolSet){
-            removeAndCloseHandler(rpcProtocol);
-        }
-
-    }
-
     private void removeAndCloseHandler(RpcProtocol rpcProtocol) {
         RpcClientHandler handler = connectedServerNodes.get(rpcProtocol);
         if (handler != null){
@@ -148,5 +184,15 @@ public class ConnectionManager {
         }
         connectedServerNodes.remove(rpcProtocol);
         rpcProtocolSet.remove(rpcProtocol);
+    }
+
+    public void stop(){
+        isRunning = false;
+        for (RpcProtocol rpcProtocol : rpcProtocolSet){
+            removeAndCloseHandler(rpcProtocol);
+        }
+        signalAvailableHandler();
+        threadPoolExecutor.shutdown();
+        eventLoopGroup.shutdownGracefully();
     }
 }
